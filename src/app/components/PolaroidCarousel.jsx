@@ -109,7 +109,7 @@ const PolaroidCarousel = forwardRef(({
               <span
                 className={`${caveat.className} text-[clamp(1.25rem,2vw,3.5rem)] text-gray-700 whitespace-nowrap`}
               >
-                Real Meet 2024
+                Egresados 2024
               </span>
               <div className="absolute bottom-0 left-0 w-full">
                 <div
