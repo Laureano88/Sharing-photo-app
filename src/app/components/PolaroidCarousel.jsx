@@ -74,7 +74,7 @@ const PolaroidCarousel = forwardRef(({
         loopAdditionalSlides={2}
         preventInteractionOnTransition={true}
         watchOverflow={true}
-        key={photos.map(p => p.id).join(',')} // Fuerza reinicio cuando cambian las fotos
+        key={photos.map(p => p.id).join(',')} // Fuerza reinicio cuando cambian las fotos 
       >
         {photos.map((photo) => (
           <SwiperSlide 
