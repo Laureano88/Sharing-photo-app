@@ -55,7 +55,7 @@ const CarouselPage = () => {
       setSettings(DEFAULT_SETTINGS);
     }
   };
-  //Carga las fotos de supabse
+  //Carga las fotos de supabse comentario para resubir el objeto
   const fetchPhotos = useCallback(async () => {
     try {
       const limit = settings?.photos_limit !== "all" ? parseInt(settings.photos_limit) : undefined;
