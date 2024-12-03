@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback, useRef, memo } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useWindowSize } from "@react-hook/window-size";
 import { FaExpand, FaCompress } from "react-icons/fa";
 import Confetti from "react-confetti";
@@ -8,6 +8,7 @@ import { supabase } from "@/app/utils/supabaseClient";
 import PolaroidCarousel from "@/app/components/PolaroidCarousel";
 import CommentBubble from "@/app/components/CommentBubble/CommentBubble";
 import QRCode from "@/app/components/QRCode";
+
 import styles from "./styles.module.css";
 
 const DEFAULT_SETTINGS = {
@@ -22,8 +23,6 @@ const DEFAULT_SETTINGS = {
   confetti_interval: 30000,
 };
 
-const MemoizedPolaroidCarousel = memo(PolaroidCarousel);
-
 const CarouselPage = () => {
   const [width, height] = useWindowSize();
   const [photos, setPhotos] = useState([]);
@@ -35,6 +34,7 @@ const CarouselPage = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentComment, setCurrentComment] = useState("");
   const carouselRef = useRef(null);
+  const lastFetchRef = useRef(Date.now());
   const UUID = "32b59104-d22c-4e8d-9c83-31ac75a81dba";
 
   const fetchSettings = async () => {
@@ -42,11 +42,11 @@ const CarouselPage = () => {
       const { data, error } = await supabase
         .from("carousel_settings")
         .select()
-        .eq('id', UUID)
+        .eq("id", UUID)
         .maybeSingle();
-      
+
       if (error || !data) {
-        console.error("Settings fetch error:", error);
+        console.error("Error porque no tengo data:", error);
         setSettings(DEFAULT_SETTINGS);
       } else {
         setSettings(data);
@@ -55,52 +55,43 @@ const CarouselPage = () => {
       setSettings(DEFAULT_SETTINGS);
     }
   };
-  //Carga las fotos de supabse comentario para resubir el objeto
+
   const fetchPhotos = useCallback(async () => {
+    // Evitar múltiples fetches en un período corto
+    const now = Date.now();
+    if (now - lastFetchRef.current < 2000) return;
+    lastFetchRef.current = now;
+
     try {
-      const limit = settings?.photos_limit !== "all" ? parseInt(settings.photos_limit) : undefined;
-      
-      const { data, error } = await supabase
+      let query = supabase
         .from("uploads")
         .select("*")
         .eq("approved", true)
-        .order("created_at", { ascending: false })
-        .limit(limit || 100);
+        .order("created_at", { ascending: false });
 
+      if (settings?.photos_limit && settings.photos_limit !== "all") {
+        query = query.limit(parseInt(settings.photos_limit));
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
 
-      setPhotos(prevPhotos => {
-        const newPhotos = data.filter(photo => 
-          !prevPhotos.some(prevPhoto => prevPhoto.id === photo.id)
-        );
-      
-        if (newPhotos.length === 0) return prevPhotos;
-      
-        const swiper = carouselRef.current?.swiper;
-        const wasPlaying = swiper?.autoplay?.running;
-        
-        // Detenemos el autoplay si está activo
-        if (wasPlaying && swiper?.autoplay?.stop) {
-          swiper.autoplay.stop();
-        }
-      
-        const updatedPhotos = [...newPhotos, ...prevPhotos]
-          .slice(0, limit || undefined);
-      
-        // Reiniciamos el autoplay si estaba activo y el método start existe
-        if (wasPlaying && swiper?.autoplay?.start) {
-          setTimeout(() => {
-            if (swiper?.autoplay?.start) {
-              swiper.autoplay.start();
-            }
-          }, 100);
-        }
-      
-        return updatedPhotos;
-      });
+      // Mantener el autoplay activo
+      const swiper = carouselRef.current?.swiper;
+      if (swiper?.autoplay?.running) {
+        swiper.autoplay.stop();
+      }
 
+      setPhotos(data || []);
+
+      // Reiniciar el autoplay después de actualizar las fotos
+      setTimeout(() => {
+        if (swiper?.autoplay) {
+          swiper.autoplay.start();
+        }
+      }, 100);
     } catch (error) {
-      console.error("Photo fetch error:", error);
+      console.error("Error fetching photos:", error);
     } finally {
       setLoading(false);
     }
@@ -170,6 +161,7 @@ const CarouselPage = () => {
   useEffect(() => {
     if (settings) {
       fetchPhotos();
+      const pollInterval = setInterval(fetchPhotos, 30000);
 
       const emojiInterval = setInterval(() => {
         if (Math.random() < 0.8) createFloatingItem();
@@ -189,6 +181,7 @@ const CarouselPage = () => {
       }, settings.confetti_interval || DEFAULT_SETTINGS.confetti_interval);
 
       return () => {
+        clearInterval(pollInterval);
         clearInterval(emojiInterval);
         clearInterval(flashInterval);
         clearInterval(confettiInterval);
@@ -202,71 +195,27 @@ const CarouselPage = () => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "carousel_settings" },
-        fetchSettings
+        () => fetchSettings()
       )
       .on(
         "postgres_changes",
-        { 
-          event: "*", 
-          schema: "public", 
-          table: "uploads", 
-          filter: "approved=eq.true" 
+        {
+          event: "*",
+          schema: "public",
+          table: "uploads",
+          filter: "approved=eq.true",
         },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            setPhotos(prevPhotos => {
-              const newPhoto = payload.new;
-              const limit = settings?.photos_limit !== "all" ? 
-                parseInt(settings.photos_limit) : 
-                prevPhotos.length;
-
-              // Verificar si la foto ya existe
-              if (prevPhotos.some(photo => photo.id === newPhoto.id)) {
-                return prevPhotos;
-              }
-
-              const updatedPhotos = [newPhoto, ...prevPhotos].slice(0, limit);
-
-              // Reiniciar el carrusel
-              const swiper = carouselRef.current?.swiper;
-              if (swiper?.slideTo && swiper?.autoplay) {
-                const wasPlaying = swiper.autoplay.running;
-                if (wasPlaying) swiper.autoplay.stop();
-                
-                setTimeout(() => {
-                  swiper.slideTo(0, 0);
-                  if (wasPlaying) swiper.autoplay.start();
-                }, 100);
-              }
-
-              return updatedPhotos;
-            });
-          } else if (payload.eventType === "DELETE") {
-            setPhotos(prevPhotos => 
-              prevPhotos.filter(photo => photo.id !== payload.old.id)
-            );
-          }
+        () => {
+          // Agregar un pequeño retraso antes de fetchear las fotos
+          setTimeout(fetchPhotos, 500);
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Suscripción activa a cambios en fotos');
-        }
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [settings?.photos_limit]);
-
-  // Fetch inicial y polling cada 30 segundos como respaldo
-  useEffect(() => {
-    if (settings) {
-      fetchPhotos();
-      const pollInterval = setInterval(fetchPhotos, 30000);
-      return () => clearInterval(pollInterval);
-    }
-  }, [settings, fetchPhotos]);
+  }, [fetchPhotos]);
 
   const toggleFullscreen = async () => {
     try {
@@ -294,15 +243,16 @@ const CarouselPage = () => {
 
   return (
     <div className={styles.container}>
+      {/* Confetti Effect */}
       <Confetti
         width={width}
         height={height}
         numberOfPieces={confettiActive ? 200 : 0}
         colors={["#f44336", "#e91e63", "#9c27b0", "#673ab7", "#3f51b5"]}
         recycle={false}
-        style={{ zIndex: 99 }}
       />
 
+      {/* Floating Emojis */}
       {floatingItems.map((item) => (
         <div
           key={item.id}
@@ -317,6 +267,7 @@ const CarouselPage = () => {
         </div>
       ))}
 
+      {/* Main Grid Layout */}
       <div className={styles.gridLayout}>
         <div className={styles.leftSection}>
           <div className={styles.logoContainer}>
@@ -344,7 +295,7 @@ const CarouselPage = () => {
 
         <div className={styles.centerSection}>
           <div className={styles.deviceWrapper}>
-            <MemoizedPolaroidCarousel
+            <PolaroidCarousel
               ref={carouselRef}
               photos={photos}
               onSlideChange={handleSlideChange}
@@ -356,9 +307,7 @@ const CarouselPage = () => {
 
         <div className={styles.rightSection}>
           <div className="mt-4 lg:mt-8 xl:mt-16 w-full flex justify-center">
-            <QRCode
-              size={window.innerWidth <= 1366 ? 200 : 280}
-            />
+            <QRCode size={window.innerWidth <= 1366 ? 200 : 280} />
           </div>
           <div className="w-full flex justify-center">
             <Image
