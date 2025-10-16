@@ -10,23 +10,34 @@ const LoginForm = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
   const supabase = createClientComponentClient();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError(null);
+    setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      console.error('Error al iniciar sesión:', error);
-      setError(error.message);
-    } else {
-      router.push('/admin/dashboard'); 
+      if (error) {
+        console.error('Error al iniciar sesión:', error);
+        setError(error.message);
+        setLoading(false);
+      } else {
+        console.log('Login exitoso:', data);
+        router.push('/admin/dashboard');
+        router.refresh();
+      }
+    } catch (err) {
+      console.error('Error inesperado:', err);
+      setError('Error inesperado al iniciar sesión');
+      setLoading(false);
     }
   };
 
@@ -53,9 +64,10 @@ const LoginForm = () => {
         {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
         <button
           type="submit"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-md transition"
+          disabled={loading}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Iniciar Sesión
+          {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
         </button>
       </form>
     </div>
