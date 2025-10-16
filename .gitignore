@@ -38,3 +38,4 @@ next-env.d.ts
 # claude
 ./claude.py
 ./nextjs_codebase.txt
+.env
